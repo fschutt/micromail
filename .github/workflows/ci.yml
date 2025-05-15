@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Rust tests and checks
+  rust:
+    name: Rust ${{ matrix.rust }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, beta, nightly]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - rust: stable
+            features: --all-features
+          - rust: beta
+            features: --all-features
+          - rust: nightly
+            features: --all-features
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Rust ${{ matrix.rust }}
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: ${{ matrix.rust }}
+        override: true
+        components: rustfmt, clippy
+    
+    - name: Build
+      run: cargo build --verbose ${{ matrix.features }}
+    
+    - name: Run tests
+      run: cargo test --verbose ${{ matrix.features }}
+    
+    - name: Rustfmt
+      run: cargo fmt --all -- --check
+    
+    - name: Clippy
+      run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
+
+  # Check WASM compatibility
+  wasm:
+    name: WebAssembly compatibility
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        target: wasm32-wasi
+        override: true
+    
+    - name: Build for WASM
+      run: cargo build --target wasm32-wasi --verbose
+
+  # C API bindings
+  c-bindings:
+    name: Build C bindings on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    
+    - name: Build C bindings
+      run: |
+        cd c-bindings
+        cargo build --release --features c-api
+    
+    - name: Upload C bindings
+      uses: actions/upload-artifact@v3
+      with:
+        name: c-bindings-${{ matrix.os }}
+        path: |
+          c-bindings/target/release/libmicromail_c.*
+          c-bindings/include/micromail.h
+
+  # Python bindings
+  python-bindings:
+    name: Build Python bindings for Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    
+    - name: Install maturin
+      run: pip install maturin
+    
+    - name: Build Python wheel
+      run: |
+        cd python-bindings
+        maturin build --release --features python-api
+    
+    - name: Test Python bindings
+      run: |
+        cd python-bindings
+        pip install -e .
+        pytest -xvs
+    
+    - name: Upload Python wheel
+      uses: actions/upload-artifact@v3
+      with:
+        name: python-wheel-${{ matrix.python-version }}-${{ matrix.os }}
+        path: python-bindings/target/wheels/*.whl
+
+  # Node.js bindings
+  nodejs-bindings:
+    name: Build Node.js bindings for Node ${{ matrix.node-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [16, 18, 20]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    
+    - name: Install dependencies
+      run: |
+        cd js-bindings
+        npm install
+    
+    - name: Build Node.js native module
+      run: |
+        cd js-bindings
+        npm run build
+    
+    - name: Test Node.js bindings
+      run: |
+        cd js-bindings
+        npm test
+    
+    - name: Upload Node.js module
+      uses: actions/upload-artifact@v3
+      with:
+        name: nodejs-module-${{ matrix.node-version }}-${{ matrix.os }}
+        path: js-bindings/build/Release/micromail.node

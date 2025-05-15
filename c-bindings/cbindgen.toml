@@ -1,0 +1,14 @@
+language = "C"
+style = "tag"
+header = """
+/* micromail C API
+ * This header file is generated automatically by cbindgen.
+ * Do not modify this file directly.
+ */
+"""
+include_guard = "MICROMAIL_H"
+namespace = "micromail"
+documentation = true
+
+[export]
+prefix = "micromail_"

@@ -1,0 +1,32 @@
+{
+  "name": "micromail",
+  "version": "0.1.0",
+  "description": "Node.js bindings for micromail",
+  "main": "index.js",
+  "scripts": {
+    "build": "cargo-cp-artifact -nc index.node -- cargo build --message-format=json-render-diagnostics",
+    "build-debug": "npm run build --",
+    "build-release": "npm run build -- --release",
+    "install": "npm run build-release",
+    "test": "node test.js"
+  },
+  "license": "MIT OR Apache-2.0",
+  "devDependencies": {
+    "cargo-cp-artifact": "^0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fschutt/micromail.git"
+  },
+  "keywords": [
+    "email",
+    "mail",
+    "smtp",
+    "wasm"
+  ],
+  "author": "Your Name",
+  "bugs": {
+    "url": "https://github.com/fschutt/micromail/issues"
+  },
+  "homepage": "https://github.com/fschutt/micromail#readme"
+}

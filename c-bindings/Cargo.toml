@@ -1,0 +1,16 @@
+[package]
+name = "micromail-c"
+version = "0.1.0"
+edition = "2021"
+description = "C bindings for micromail"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "micromail_c"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+micromail = { path = "..", features = ["c-api"] }
+
+[build-dependencies]
+cbindgen = "0.24.0"
