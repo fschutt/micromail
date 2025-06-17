@@ -14,8 +14,8 @@ pub enum Error {
     ConnectionFailed,
     
     /// SMTP protocol error.
-    #[error("SMTP protocol error (code: {code}): {message}")]
-    SmtpError { code: u16, message: String },
+    #[error("SMTP protocol error (code: {code:?}): {message}")]
+    SmtpError { code: SmtpErrorCode, message: String },
     
     /// TLS negotiation failed.
     #[error("TLS negotiation failed: {0}")]
