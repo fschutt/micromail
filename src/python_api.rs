@@ -3,9 +3,12 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::types::{PyDict, PyList};
+use pyo3::create_exception;
 
 use crate::{Config, Error, Mail, Mailer};
 
+#[cfg(feature = "tokio-runtime")]
+use crate::async_mail::AsyncMailSender; // For AsyncMailer::send
 #[cfg(feature = "tokio-runtime")]
 use crate::AsyncMailer;
 
@@ -18,9 +21,19 @@ fn micromail(_py: Python, m: &PyModule) -> PyResult<()> {
     
     #[cfg(feature = "tokio-runtime")]
     m.add_class::<PyAsyncMailer>()?;
+
+    // Custom Error types
+    m.add("MicromailError", _py.get_type::<PyRuntimeError>())?; // Changed to get_type
+    m.add("MicromailSmtpError", _py.get_type::<MicromailSmtpError>())?; // Changed to get_type
+    m.add("MicromailAuthError", _py.get_type::<MicromailAuthError>())?; // Changed to get_type
     
     Ok(())
 }
+
+// Define custom Python exception types
+create_exception!(micromail, MicromailSmtpError, PyRuntimeError);
+create_exception!(micromail, MicromailAuthError, PyRuntimeError);
+
 
 /// Python wrapper for Config
 #[pyclass]
@@ -76,6 +89,14 @@ impl PyConfig {
     #[setter]
     fn set_domain(&mut self, domain: &str) -> PyResult<()> {
         self.inner.domain = domain.to_string();
+        Ok(())
+    }
+
+    /// Enable or disable test mode.
+    /// In test mode, no actual network connections are made, and SMTP interactions are simulated.
+    #[pyo3(text_signature = "($self, enable)")]
+    fn enable_test_mode(&mut self, enable: bool) -> PyResult<()> {
+        self.inner.test_mode = enable;
         Ok(())
     }
     
@@ -226,8 +247,15 @@ impl PyMailer {
     /// Send a mail
     #[pyo3(text_signature = "($self, mail)")]
     fn send(&mut self, mail: &PyMail) -> PyResult<()> {
-        self.inner.send_sync(mail.inner.clone())
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to send mail: {}", e)))
+        self.inner.send_sync(mail.inner.clone()).map_err(|e| match e {
+            Error::SmtpError { code, message } => {
+                MicromailSmtpError::new_err((code, message))
+            }
+            Error::AuthError { code, message } => {
+                MicromailAuthError::new_err((code.map(|c| c.to_string()).unwrap_or_else(|| "N/A".to_string()), message))
+            }
+            _ => PyRuntimeError::new_err(format!("Failed to send mail: {}", e)),
+        })
     }
     
     /// Get the log messages
@@ -268,12 +296,41 @@ impl PyAsyncMailer {
     #[pyo3(text_signature = "($self, mail)")]
     fn send<'py>(&mut self, py: Python<'py>, mail: &PyMail) -> PyResult<&'py PyAny> {
         let mail_clone = mail.inner.clone();
-        let mut inner = self.inner.clone();
+        // self.inner is AsyncMailer, which is now Clone.
+        // The send method on AsyncMailer takes &mut self, but the Mailer within is Arc<Mutex<Mailer>>
+        // So, we clone the AsyncMailer (which clones the Arc) for this specific async operation.
+        let mut mailer_for_send = self.inner.clone();
         
         pyo3_asyncio::tokio::future_into_py(py, async move {
-            inner.send(mail_clone).await
-                .map_err(|e| PyRuntimeError::new_err(format!("Failed to send mail: {}", e)))
+            mailer_for_send.send(mail_clone).await.map_err(|e| match e {
+                Error::SmtpError { code, message } => {
+                    MicromailSmtpError::new_err((code, message))
+                }
+                Error::AuthError { code, message } => {
+                    MicromailAuthError::new_err((code.map(|c| c.to_string()).unwrap_or_else(|| "N/A".to_string()), message))
+                }
+                _ => PyRuntimeError::new_err(format!("Failed to send mail: {}", e)),
+            })
         })
+    }
+
+    /// Get the log messages
+    #[pyo3(text_signature = "($self)")]
+    fn get_log<'py>(&self, py: Python<'py>) -> PyResult<&'py PyList> {
+        let mailer_arc = self.inner.mailer(); // Gets Arc<Mutex<Mailer>>
+        let locked_mailer = mailer_arc.lock().map_err(|e| PyRuntimeError::new_err(format!("Failed to lock mailer: {}", e)))?;
+        let log = locked_mailer.get_log();
+        let list = PyList::new(py, log.iter().map(|s| s.as_str()));
+        Ok(list)
+    }
+
+    /// Clear the log messages
+    #[pyo3(text_signature = "($self)")]
+    fn clear_log(&mut self) -> PyResult<()> {
+        let mailer_arc = self.inner.mailer(); // Gets Arc<Mutex<Mailer>>
+        let mut locked_mailer = mailer_arc.lock().map_err(|e| PyRuntimeError::new_err(format!("Failed to lock mailer: {}", e)))?;
+        locked_mailer.clear_log();
+        Ok(())
     }
 }
 
@@ -282,14 +339,7 @@ impl PyAsyncMailer {
 impl Clone for PyAsyncMailer {
     fn clone(&self) -> Self {
         Self {
-            inner: AsyncMailer::new(
-                self.inner
-                    .mailer()
-                    .lock()
-                    .unwrap()
-                    .config
-                    .clone()
-            ),
+            inner: self.inner.clone(),
         }
     }
 }

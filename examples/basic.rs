@@ -4,7 +4,8 @@ use micromail::{Config, Mailer, Mail, Error};
 
 fn main() -> Result<(), Error> {
     // Create a configuration
-    let config = Config::new("example.com");
+    let config = Config::new("example.com")
+        .enable_test_mode(true); // Enable test mode
     
     // Create a mailer
     let mut mailer = Mailer::new(config);

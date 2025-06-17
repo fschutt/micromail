@@ -161,9 +161,16 @@ const char* micromail_get_last_error();
  * Get the log messages from a Mailer
  * 
  * @param mailer Pointer to the Mailer
- * @return const char* Log messages
+ * @return char* Log messages (must be freed with micromail_free_string)
  */
-const char* micromail_mailer_get_log(MailerPtr mailer);
+char* micromail_mailer_get_log(MailerPtr mailer);
+
+/**
+ * Free a string returned by micromail_mailer_get_log
+ *
+ * @param str Pointer to the string to free
+ */
+void micromail_free_string(char* str);
 
 #ifdef __cplusplus
 }

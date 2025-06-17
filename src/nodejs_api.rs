@@ -33,6 +33,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("configSetTimeout", js_config_set_timeout)?;
     cx.export_function("configSetUseTls", js_config_set_use_tls)?;
     cx.export_function("configSetAuth", js_config_set_auth)?;
+    cx.export_function("configEnableTestMode", js_config_enable_test_mode)?;
     
     cx.export_function("createMail", js_create_mail)?;
     cx.export_function("mailSetFrom", js_mail_set_from)?;
@@ -90,6 +91,20 @@ fn js_config_set_auth(mut cx: FunctionContext) -> JsResult<JsUndefined> {
         password,
     });
     
+    Ok(cx.undefined())
+}
+
+/// Enable or disable test mode for a Config
+fn js_config_enable_test_mode(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    let config = cx.argument::<JsBox<JsConfig>>(0)?;
+    let enable = cx.argument::<JsBoolean>(1)?.value(&mut cx);
+
+    // Directly modify the inner Config. Since JsConfig holds Config directly (not Arc<Mutex<Config>>),
+    // this modification is only for this JsConfig instance. If JsConfig were shared and then
+    // test mode enabled on one, others wouldn't see it unless Config itself was shared via Arc<Mutex<>>.
+    // For typical Neon usage where objects are created and passed around, this is fine.
+    config.inner.test_mode = enable;
+
     Ok(cx.undefined())
 }
 
@@ -185,32 +200,35 @@ fn js_mailer_send(mut cx: FunctionContext) -> JsResult<JsBoolean> {
 }
 
 /// Send a mail asynchronously using a Mailer
+/// Note: This "async" implementation currently uses `std::thread::spawn`
+/// to run the blocking `send_sync` method in a separate thread.
+/// It does not leverage a full async Rust runtime (e.g., Tokio) directly within Neon's event loop
+/// for the send operation itself, as the underlying `AsyncMailer` in the core library
+/// also uses `tokio::task::spawn_blocking`.
 fn js_mailer_send_async(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let mailer = cx.argument::<JsBox<JsMailer>>(0)?;
     let mail = cx.argument::<JsBox<JsMail>>(1)?;
-    
+
     let mailer_clone = mailer.inner.clone();
     let mail_clone = mail.inner.clone();
-    
+
+    let channel = cx.channel(); // Get the channel
     let (deferred, promise) = cx.promise();
-    
+
     std::thread::spawn(move || {
         let result = {
             let mut mailer_guard = mailer_clone.lock().unwrap();
             mailer_guard.send_sync(mail_clone)
         };
-        
-        deferred.settle_with(move |mut cx| {
+
+        deferred.settle_with(&channel, move |mut cx| { // Pass &channel
             match result {
                 Ok(_) => Ok(cx.boolean(true)),
-                Err(e) => {
-                    let error = cx.error(format!("Failed to send mail: {}", e))?;
-                    Ok(error)
-                }
+                Err(e) => cx.throw(cx.error(format!("Failed to send mail: {}", e))?),
             }
         });
     });
-    
+
     Ok(promise)
 }
 
@@ -222,7 +240,7 @@ fn js_mailer_get_log(mut cx: FunctionContext) -> JsResult<JsArray> {
         mailer_guard.get_log().to_vec()
     };
     
-    let js_array = JsArray::new(&mut cx, log.len() as u32);
+    let js_array = JsArray::new(&mut cx, log.len() as usize); // Changed u32 to usize
     
     for (i, msg) in log.iter().enumerate() {
         let js_string = cx.string(msg);

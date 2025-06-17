@@ -30,6 +30,8 @@ pub struct Config {
     /// DKIM selector.
     #[cfg(feature = "signing")]
     pub dkim_selector: Option<String>,
+    /// Enable test mode (no actual network connections, mock SMTP server)
+    pub test_mode: bool,
 }
 
 /// Authentication credentials.
@@ -54,11 +56,19 @@ impl Default for Config {
             signing_key: None,
             #[cfg(feature = "signing")]
             dkim_selector: None,
+            test_mode: false, // Initialize test_mode
         }
     }
 }
 
 impl Config {
+    /// Enable or disable test mode.
+    /// In test mode, no actual network connections are made, and SMTP interactions are simulated.
+    pub fn enable_test_mode(mut self, enable: bool) -> Self {
+        self.test_mode = enable;
+        self
+    }
+
     /// Create a new configuration with the given domain.
     pub fn new<S: Into<String>>(domain: S) -> Self {
         Self {
