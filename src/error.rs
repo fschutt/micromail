@@ -14,8 +14,8 @@ pub enum Error {
     ConnectionFailed,
     
     /// SMTP protocol error.
-    #[error("SMTP protocol error: {0}")]
-    SmtpError(String),
+    #[error("SMTP protocol error (code: {code:?}): {message}")]
+    SmtpError { code: SmtpErrorCode, message: String },
     
     /// TLS negotiation failed.
     #[error("TLS negotiation failed: {0}")]
@@ -38,8 +38,8 @@ pub enum Error {
     InvalidMailContent(String),
     
     /// Authentication error.
-    #[error("authentication error: {0}")]
-    AuthError(String),
+    #[error("authentication error (code: {code:?}): {message}")]
+    AuthError { code: Option<u16>, message: String },
     
     #[cfg(feature = "signing")]
     /// Signing error.

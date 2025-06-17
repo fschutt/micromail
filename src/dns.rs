@@ -9,10 +9,20 @@ pub struct MxRecord {
     pub priority: u16,
     /// Server hostname
     pub server: String,
-}
+} // Close MxRecord struct definition
+
+use crate::config::Config; // Moved import to a correct position
 
 /// Resolves the list of MX records via DNS lookup
-pub fn get_mx_records(domain: &str) -> Vec<MxRecord> {
+pub fn get_mx_records(domain: &str, config: &Config) -> Vec<MxRecord> {
+    if config.test_mode {
+        return vec![MxRecord {
+            priority: 10,
+            server: "localhost.testmode".to_string(), // Dummy MX record for test mode
+        }];
+    }
+
+    // Existing localhost check can remain as a fallback or be removed if test_mode is comprehensive
     if domain.contains("localhost") {
         return vec![MxRecord {
             priority: 10,

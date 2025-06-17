@@ -148,44 +148,88 @@ impl Signer {
     }
 
     /// Sign a mail with DKIM
-    pub fn sign(&self, mail: &mut Mail, domain: &str) -> Result<(), Error> {
-        let body_hash = utils::hash_payload(mail.body.as_bytes());
-        
-        // Create the DKIM-Signature header without the b= tag
-        let dkim_header = format!(
-            "DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d={}; s={};\r\n\tt={}; h=from:to:subject:date; bh={}; b=",
-            domain, 
-            self.selector,
-            chrono::Utc::now().timestamp(),
-            body_hash
+    pub fn sign(&self, mail: &mut Mail, config: &Config, domain: &str) -> Result<(), Error> {
+        // 1. Canonicalize body and compute body hash
+        let canonicalized_body = utils::canonicalize_body_relaxed(&mail.body);
+        let body_hash = utils::hash_payload(canonicalized_body.as_bytes());
+
+        // 2. Prepare headers for signing
+        // Define which headers to sign. Order matters.
+        // DKIM-Signature header itself will be added last to this list before canonicalization.
+        let header_names_to_sign = ["From", "To", "Subject", "Date", "Message-ID", "Content-Type"];
+        let mut signature_input_string = String::new();
+
+        // Generate Date and Message-ID if not present, use existing if they are.
+        // These values will be used for both the actual mail headers and for signing.
+        let date_value;
+        if let Some(existing_date) = mail.headers.get("Date") {
+            date_value = existing_date.clone();
+        } else {
+            date_value = utils::format_date();
+            // Add to mail.headers so it's part of the sent email
+            mail.headers.insert("Date".to_string(), date_value.clone());
+        }
+
+        let message_id_value;
+        if let Some(existing_msg_id) = &mail.message_id {
+            message_id_value = existing_msg_id.clone();
+        } else {
+            message_id_value = utils::generate_message_id(&config.domain);
+            mail.message_id = Some(message_id_value.clone()); // Also ensure it's set on the mail struct
+        }
+        // Ensure Message-ID is in headers for consistent retrieval
+        mail.headers.insert("Message-ID".to_string(), message_id_value.clone());
+
+
+        let mut signed_header_names_list = Vec::new();
+
+        for name in header_names_to_sign.iter() {
+            let value = match *name {
+                "From" => Some(mail.from.clone()),
+                "To" => Some(mail.to.clone()),
+                "Subject" => Some(mail.subject.clone()),
+                "Date" => Some(date_value.clone()), // Use the unified date_value
+                "Message-ID" => Some(message_id_value.clone()), // Use the unified message_id_value
+                "Content-Type" => Some(mail.content_type.clone()),
+                _ => mail.headers.get(*name).cloned(),
+            };
+
+            if let Some(v) = value {
+                signature_input_string.push_str(&utils::canonicalize_header_relaxed(name, &v));
+                signed_header_names_list.push(name.to_lowercase());
+            }
+        }
+
+        let h_tag_value = signed_header_names_list.join(":");
+        let timestamp = chrono::Utc::now().timestamp();
+
+        // 3. Construct the DKIM-Signature header template (for signing, b= empty)
+        let dkim_header_template_for_signing = format!(
+            "v=1; a=ed25519-sha256; c=relaxed/relaxed; d={}; s={};\r\n\tt={}; h={}; bh={};\r\n\tb=",
+            domain, self.selector, timestamp, h_tag_value, body_hash
         );
         
-        // Create the signature input (header + "\r\n" + body)
-        let mut signature_input = String::new();
-        signature_input.push_str(&format!("From: {}\r\n", mail.from));
-        signature_input.push_str(&format!("To: {}\r\n", mail.to));
-        signature_input.push_str(&format!("Subject: {}\r\n", mail.subject));
-        signature_input.push_str(&format!("Date: {}\r\n", utils::format_date()));
-        signature_input.push_str(&dkim_header);
-        signature_input.push_str("\r\n");
-        signature_input.push_str(&mail.body);
+        // Add the canonicalized DKIM-Signature header (without b= value) to the signature input
+        // The value part is everything after "DKIM-Signature:"
+        let dkim_canonicalized_for_input = utils::canonicalize_header_relaxed(
+            "DKIM-Signature",
+            &dkim_header_template_for_signing // This is the value part
+        );
+        signature_input_string.push_str(&dkim_canonicalized_for_input);
         
-        // Sign the input
-        let signature: Signature = self.key.sign(signature_input.as_bytes());
+        // 4. Sign the accumulated canonicalized headers
+        let signature: Signature = self.key.sign(signature_input_string.as_bytes());
         let signature_b64 = base64::encode(signature.to_bytes());
-        
-        // Add the signature to the mail headers
-        mail.headers.insert(
-            "DKIM-Signature".to_string(),
-            format!(
-                "v=1; a=ed25519-sha256; c=relaxed/relaxed; d={}; s={}; t={}; h=from:to:subject:date; bh={}; b={}",
-                domain, 
-                self.selector,
-                chrono::Utc::now().timestamp(),
-                body_hash,
-                signature_b64
-            )
+
+        // 5. Construct the final DKIM-Signature header with the signature (b= value)
+        // Ensure to remove any potential \r\n from dkim_header_template_for_signing before appending b=
+        let final_dkim_header_value = format!(
+            "{}{}",
+            dkim_header_template_for_signing.trim_end_matches("\r\n\tb="), // Remove placeholder \r\n\tb=
+            signature_b64
         );
+
+        mail.headers.insert("DKIM-Signature".to_string(), final_dkim_header_value);
         
         Ok(())
     }
@@ -228,7 +272,7 @@ impl Mailer {
             if let Some(selector) = &self.config.dkim_selector {
                 let signer = Signer::new(key.clone(), selector.clone());
                 let domain = self.extract_domain(&mail.from)?;
-                signer.sign(&mut mail, &domain)?;
+                signer.sign(&mut mail, &self.config, &domain)?;
             }
         }
         
@@ -236,7 +280,7 @@ impl Mailer {
         let domain = self.extract_domain(&mail.to)?;
         
         // Get MX records
-        let mx_records = dns::get_mx_records(&domain);
+        let mx_records = dns::get_mx_records(&domain, &self.config); // Corrected: Pass &self.config
         if mx_records.is_empty() {
             return Err(Error::NoMxRecords);
         }
@@ -247,7 +291,7 @@ impl Mailer {
         let mut connection = connection::try_start_connection(
             &mx_records,
             &self.config.ports,
-            self.config.timeout,
+            &self.config, // Corrected: Pass &self.config instead of self.config.timeout
             &mut self.log,
         ).ok_or(Error::ConnectionFailed)?;
         
@@ -322,7 +366,7 @@ impl Mailer {
         let response = io::secure_read(connection)?;
         
         if !response.is_http_ok() {
-            return Err(Error::AuthError(response.message));
+            return Err(Error::AuthError{ code: Some(response.code), message: response.message });
         }
         
         Ok(())
@@ -362,7 +406,7 @@ impl Mailer {
         self.log.push(String::new());
         
         if !response.is_http_ok() {
-            return Err(Error::SmtpError(format!("MAIL FROM failed: {}", response.message)));
+            return Err(Error::SmtpError{ code: response.code, message: format!("MAIL FROM failed: {}", response.message) });
         }
         
         // Send RCPT TO
@@ -374,7 +418,7 @@ impl Mailer {
         self.log.push(String::new());
         
         if !response.is_http_ok() {
-            return Err(Error::SmtpError(format!("RCPT TO failed: {}", response.message)));
+            return Err(Error::SmtpError{ code: response.code, message: format!("RCPT TO failed: {}", response.message) });
         }
         
         // Send DATA
@@ -385,8 +429,8 @@ impl Mailer {
         self.log.push(format!("{response:?}"));
         self.log.push(String::new());
         
-        if response.code != 354 {
-            return Err(Error::SmtpError(format!("DATA failed: {}", response.message)));
+        if response.code != 354 { // DATA command expects 354
+            return Err(Error::SmtpError{ code: response.code, message: format!("DATA command failed: {}", response.message) });
         }
         
         // Log mail content
@@ -404,8 +448,8 @@ impl Mailer {
         self.log.push(format!("{response:?}"));
         self.log.push(String::new());
         
-        if !response.is_http_ok() {
-            return Err(Error::SmtpError(format!("Mail sending failed: {}", response.message)));
+        if !response.is_http_ok() { // Mail content sent, expects 250
+            return Err(Error::SmtpError{ code: response.code, message: format!("Mail content sending failed: {}", response.message) });
         }
         
         Ok(())

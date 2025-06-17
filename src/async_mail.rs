@@ -40,6 +40,14 @@ impl AsyncMailer {
     }
 }
 
+impl Clone for AsyncMailer {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
 #[async_trait]
 impl AsyncMailSender for AsyncMailer {
     /// Send a mail asynchronously
