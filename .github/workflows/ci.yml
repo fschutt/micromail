@@ -28,7 +28,7 @@ jobs:
             features: --all-features
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Install Rust ${{ matrix.rust }}
       uses: actions-rs/toolchain@v1
@@ -55,7 +55,7 @@ jobs:
     name: WebAssembly compatibility
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -78,7 +78,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Install Rust
       uses: actions-rs/toolchain@v1
@@ -93,7 +93,7 @@ jobs:
         cargo build --release --features c-api
     
     - name: Upload C bindings
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: c-bindings-${{ matrix.os }}
         path: |
@@ -111,7 +111,7 @@ jobs:
         python-version: ['3.8', '3.9', '3.10', '3.11']
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
@@ -140,7 +140,7 @@ jobs:
         pytest -xvs
     
     - name: Upload Python wheel
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: python-wheel-${{ matrix.python-version }}-${{ matrix.os }}
         path: python-bindings/target/wheels/*.whl
@@ -156,10 +156,10 @@ jobs:
         node-version: [16, 18, 20]
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
     
@@ -186,7 +186,7 @@ jobs:
         npm test
     
     - name: Upload Node.js module
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: nodejs-module-${{ matrix.node-version }}-${{ matrix.os }}
         path: js-bindings/build/Release/micromail.node
