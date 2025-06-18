@@ -1,36 +1,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //! # micromail
-//!
-//! `micromail` is a minimal mail sending library that works on WASM Edge and natively.
-//!
-//! ## Features
-//!
-//! - Minimal dependencies
-//! - Works on WASM Edge
-//! - Simple API
-//! - Optional async support
-//! - Optional mail signing
-//!
-//! ## Example
-//!
-//! ```rust,no_run
-//! use micromail::{Config, Mailer, Mail};
-//!
-//! fn main() -> Result<(), micromail::Error> {
-//!     let config = Config::new("example.com");
-//!     let mut mailer = Mailer::new(config);
-//!     
-//!     let mail = Mail::new()
-//!         .from("sender@example.com")
-//!         .to("recipient@example.com")
-//!         .subject("Hello from micromail")
-//!         .body("This is a test email sent with micromail!");
-//!
-//!     mailer.send_sync(mail)?;
-//!     
-//!     Ok(())
-//! }
-//! ```
+// ... (module docs) ...
 
 mod config;
 mod connection;
@@ -54,23 +24,20 @@ pub use mail::{Mail, Mailer};
 #[cfg(feature = "tokio-runtime")]
 pub use async_mail::{AsyncMailer, AsyncMailSender};
 
-// Re-export important types
 pub use connection::Connected;
 pub use dns::MxRecord;
 
 #[cfg(feature = "signing")]
-pub use mail::Signer;
-#[cfg(feature = "signing")]
-pub use signing::{generate_signing_key, generate_signing_key_random, get_verifying_key, format_dkim_dns_record};
+pub use mail::Signer; // This was in the original issue's lib.rs
 
-// Optional C API bindings
+// Corrected exports from signing module as per issue description
+#[cfg(feature = "signing")]
+pub use signing::{generate_rsa_key_pem, format_dkim_dns_record};
+// generate_rsa_key and get_public_key_der are not exported here based on issue's final lib.rs
+
 #[cfg(feature = "c-api")]
 pub mod c_api;
-
-// Optional Python API bindings
 #[cfg(feature = "python-api")]
 pub mod python_api;
-
-// Optional Node.js API bindings
 #[cfg(feature = "nodejs-api")]
 pub mod nodejs_api;

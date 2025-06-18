@@ -2,6 +2,9 @@
 
 use thiserror::Error;
 
+/// SMTP error code type
+pub type SmtpErrorCode = u16;
+
 /// Errors that can occur when using the micromail crate.
 #[derive(Error, Debug)]
 pub enum Error {

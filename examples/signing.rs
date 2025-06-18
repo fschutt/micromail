@@ -1,47 +1,61 @@
-//! Example of signing an email with DKIM
+//! Example of signing an email with DKIM using the mail-auth crate.
 
-use micromail::{Config, Mailer, Mail, Error, generate_signing_key_random, format_dkim_dns_record};
+use micromail::{Config, Mailer, Mail, Error, generate_rsa_key_pem, format_dkim_dns_record};
+use mail_auth::common::crypto::{RsaKey, Sha256}; // For RsaKey<Sha256>
 
 fn main() -> Result<(), Error> {
-    // Generate a new signing key 
-    // let signing_key = SigningKey::from_bytes(/* your 32-byte key here */)
-    let signing_key = generate_signing_key_random();
+    let private_key_pem = generate_rsa_key_pem()
+        .map_err(|e_str| Error::SigningError(e_str))?;
+
+    println!("Generated RSA private key (PEM format) for DKIM signing.");
     
-    // Print the public key for DNS record setup
-    let verifying_key = signing_key.verifying_key();
-    println!("DKIM DNS record:");
-    println!("{}", format_dkim_dns_record(&verifying_key, "mail", "example.com"));
-    println!();
+    let dkim_signer_key = RsaKey::<Sha256>::from_pkcs1_pem(&private_key_pem)
+        .map_err(|e| Error::SigningError(format!("Failed to parse PEM into RsaKey<Sha256>: {}", e.to_string())))?;
+
+    // Correctly get RsaPublicKey: RsaKey<Sha256> from mail-auth derefs to rsa::RsaPrivateKey
+    let rsa_public_key = dkim_signer_key.to_public_key();
+
+    let dns_selector_str = "mail";
+    let dns_domain_str = "example.com";
+
+    let dns_record_value = format_dkim_dns_record(&rsa_public_key, dns_selector_str, dns_domain_str)
+        .map_err(|e_str| Error::SigningError(e_str))?;
+
+    println!("Add this TXT record to your DNS for domain '{}' and selector '{}':", dns_domain_str, dns_selector_str);
+    println!("{}\n", dns_record_value);
     
-    // Create a configuration with DKIM signing
-    let config = Config::new("example.com")
-        .signing_key(signing_key, "mail".to_string());
-    
-    // Create a mailer
+    let config = Config::new(dns_domain_str.to_string())
+        .dkim_rsa_key(&private_key_pem, &dns_selector_str.to_string(), &dns_domain_str.to_string())?
+        .enable_test_mode(true);
+
     let mut mailer = Mailer::new(config);
-    
-    // Create an email
     let mail = Mail::new()
-        .from("sender@example.com")
-        .to("recipient@example.com")
-        .subject("Signed email from micromail")
-        .body("This is a signed test email!");
+        .from(format!("sender@{}", dns_domain_str))
+        .to("recipient@example.net")
+        .subject("DKIM Signed Email Example (micromail)")
+        .body("This email is a test of DKIM signing (currently no-op)."); // Updated body
     
-    // Send the email (it will be signed automatically)
     match mailer.send_sync(mail) {
         Ok(_) => {
-            println!("Signed email sent successfully!");
-            
-            // Print the log to see the DKIM header
-            println!("\nLog:");
-            for line in mailer.get_log() {
-                println!("{}", line);
+            println!("Email sending process simulated successfully in test mode!");
+            println!("\nMailer Log (DKIM signature should NOT be present):"); // Updated
+            for log_entry in mailer.get_log() {
+                println!("{}", log_entry);
+                if log_entry.contains("DKIM-Signature:") {
+                    println!("^^^ DKIM Signature Header found in log (UNEXPECTED) ^^^");
+                }
             }
         }
         Err(e) => {
-            println!("Failed to send email: {}", e);
+            eprintln!("Failed during simulated email sending process: {}", e);
+            if !mailer.get_log().is_empty() {
+                println!("\nMailer Log (on error):");
+                for log_entry in mailer.get_log() {
+                    println!("{}", log_entry);
+                }
+            }
+            return Err(e);
         }
     }
-    
     Ok(())
 }
