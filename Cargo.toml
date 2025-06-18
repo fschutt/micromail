@@ -18,33 +18,33 @@ async-trait = { version = "0.1.88", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 log = "0.4"
 bytes = "1.10"
-ed25519-dalek = { version = "2.1.1", optional = true }
-sha2 = { version = "0.10.9", optional = true }
 base64 = "0.22.1"
-base64ct = "=1.6.0" # Pinned to avoid edition2024 issue
-chrono = "0.4.41"
-rand = { version = "0.9.1", features = ["thread_rng"] }
+chrono = { version = "0.4.41", features = ["serde"] }
+rand = { version = "0.8.5" }
 futures = { version = "0.3", optional = true }
 microdns = "0.1.0"
-pyo3 = { version = "0.20.0", features = ["extension-module"], optional = true } # Aligning with pyo3-asyncio
-pyo3-asyncio = { version = "0.20.0", features = ["tokio"], optional = true } # Corrected feature for v0.20.0
+pyo3 = { version = "0.20.0", features = ["extension-module"], optional = true }
+pyo3-asyncio = { version = "0.20.0", features = ["tokio"], optional = true }
 neon = { version = "1.0.0", default-features = false, features = ["napi-6"], optional = true }
 
+mail-auth = { version = "0.7.1", features = ["rust-crypto"], optional = true }
+# rsa dependency with corrected features based on user feedback and typical usage
+rsa = { version = "0.9.6", default-features = false, features = ["pem", "pkcs1", "pkcs8"], optional = true }
+rand_core = { version = "0.6.4", features = ["std"], optional = true }
 
 [features]
 default = ["tokio-runtime", "signing"]
 tokio-runtime = ["tokio", "async-trait", "futures"]
-signing = ["ed25519-dalek", "sha2"]
-serialize = ["serde"]
+signing = ["dep:mail-auth", "dep:rsa", "dep:rand_core"]
+serialize = ["serde", "chrono/serde"]
 c-api = []
-python-api = ["pyo3", "pyo3-asyncio", "tokio-runtime"] # Ensure tokio-runtime is enabled for PyAsyncMailer
-nodejs-api = ["neon"]
+python-api = ["pyo3", "pyo3-asyncio", "tokio-runtime", "serialize"]
+nodejs-api = ["neon", "serialize"]
 
 [dev-dependencies]
 tokio-test = "0.4.3"
 criterion = "0.5.1"
 tempfile = "3.8.1"
-half = "=2.4.0" # Pinning version for Rust 1.75 compatibility
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -74,5 +74,3 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [workspace]
 members = ["c-bindings", "python-bindings", "js-bindings"]
-
-# Removed incorrect patch section
